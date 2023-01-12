@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 	"sync"
+	"time"
 
 	"github.com/yzbtdiy/alist_batch/models"
 
@@ -119,7 +120,6 @@ func Start() {
 	// 拼接API
 	loginApi := conf.Url + "/api/auth/login"
 	storageListApi := conf.Url + "/api/admin/storage/list"
-	addStorageApi := conf.Url + "/api/admin/storage/create"
 
 	// 将用户名和密码转为json
 	loginData := models.AuthJson{
@@ -151,17 +151,12 @@ func Start() {
 					wg.Add(1)
 					go func(category, shareName, shareUrl string) {
 						defer wg.Done()
-						pushData := BuildPushData(`/`+category+`/`+shareName, shareUrl, conf)
-						resData := &models.ResData{}
-						httpClient.R().SetResult(resData).
-							SetHeader("Content-Type", "application/json").
-							SetHeader("Authorization", conf.Token).
-							SetBody(pushData).
-							Post(addStorageApi)
-						if resData.Code == 200 {
-							fmt.Println(category + " " + shareName + " 添加完成")
-						} else {
-							fmt.Println(category + " " + shareName + " 添加失败, 请检查是否重复添加")
+						for {
+							if do(httpClient, conf, category, shareName, shareUrl) {
+								fmt.Println(category + " " + shareName + " 添加完成")
+								break
+							}
+							time.Sleep(1 * time.Second)
 						}
 					}(category, shareName, shareUrl)
 				}
@@ -181,4 +176,22 @@ func Start() {
 			fmt.Println("token已更新, 请重新运行此程序")
 		}
 	}
+}
+
+func do(httpClient *resty.Client, conf *models.Config, category, shareName, shareUrl string) bool {
+	pushData := BuildPushData(`/`+category+`/`+shareName, shareUrl, conf)
+	resData := &models.ResData{}
+	httpClient.R().SetResult(resData).
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Authorization", conf.Token).
+		SetBody(pushData).
+		Post(conf.Url + "/api/admin/storage/create")
+	if resData.Code != 200 {
+		panic(resData.Message)
+	}
+	if resData.Message != `failed create storage in database: ERROR: duplicate key value violates unique constraint "x_storages_mount_path_key" (SQLSTATE 23505)` {
+		fmt.Println(category + " " + shareName + " 添加失败, 请检查是否重复添加")
+		return false
+	}
+	return true
 }
