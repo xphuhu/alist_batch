@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"sync"
 	"time"
 
 	"github.com/yzbtdiy/alist_batch/models"
@@ -143,25 +142,19 @@ func Start() {
 			Get(storageListApi)
 		if resData.Code == 200 {
 			shareListData := GetShareList("./ali_share.yaml")
-			wg := &sync.WaitGroup{}
 			for category, shareList := range shareListData {
 				// fmt.Println(category)
 				for shareName, shareUrl := range shareList {
 					// fmt.Println(shareName, shareUrl)
-					wg.Add(1)
-					go func(category, shareName, shareUrl string) {
-						defer wg.Done()
-						for {
-							if do(httpClient, conf, category, shareName, shareUrl) {
-								fmt.Println(category + " " + shareName + " 添加完成")
-								break
-							}
-							time.Sleep(1 * time.Second)
+					for {
+						if do(httpClient, conf, category, shareName, shareUrl) {
+							fmt.Println(category + " " + shareName + " 添加完成")
+							break
 						}
-					}(category, shareName, shareUrl)
+						time.Sleep(3 * time.Second)
+					}
 				}
 			}
-			wg.Wait()
 		}
 	} else {
 		// token无效重新获取
@@ -187,11 +180,10 @@ func do(httpClient *resty.Client, conf *models.Config, category, shareName, shar
 		SetBody(pushData).
 		Post(conf.Url + "/api/admin/storage/create")
 	if resData.Code != 200 {
-		panic(resData.Message)
-	}
-	if resData.Message != `failed create storage in database: ERROR: duplicate key value violates unique constraint "x_storages_mount_path_key" (SQLSTATE 23505)` {
-		fmt.Println(category + " " + shareName + " 添加失败, 请检查是否重复添加")
-		return false
+		if resData.Message != `failed create storage in database: ERROR: duplicate key value violates unique constraint "x_storages_mount_path_key" (SQLSTATE 23505)` {
+			fmt.Println(category + " " + shareName + " 添加失败, 请检查是否重复添加")
+			return false
+		}
 	}
 	return true
 }
